@@ -587,7 +587,7 @@ let rec can_aux n t =
     | Equal(t1,t2)          -> Equal(f t1,f t2)
     | FOL t                 -> FOL (f t)
 
-(* takes a type and term and returns them in canonical form, along with a list of free variable substitutions made. *)
+(* takes a context and term and returns them in canonical form, along with a list of free variable substitutions made. *)
 let canonical ctx0 =
   let rec can_ctx_aux acc subacc n ctx t =
     match ctx with
