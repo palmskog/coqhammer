@@ -831,15 +831,6 @@ let hash_bool t1 t2 b =
   
 let ht_to_list h = Hashtbl.fold (fun k v acc -> (k, v) :: acc) h []
   
-let hashing t =
-  let hk = Hashtbl.hash t in
-  if (Hashtbl.mem my_hash hk) then true
-  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then true
-  else 
-   begin
-     (Hashtbl.add my_hash hk t);
-	 false
-   end
 
 (***************************************************************************************)
 (* Printing *)
@@ -1833,6 +1824,25 @@ let rec add_inversion_axioms0 mkinv indname axname fvars lvars constrs matched_t
 (***************************************************************************************)
 (* Lambda-lifting, fix-lifting and case-lifting *)
 
+and hashing axname name fvars lvars1 t =
+  if (Hashtbl.mem my_hash t) then 
+  begin
+     Msg.info ("No lamda lifting: the term is already lifted");
+    (Hashtbl.find my_hash t)
+  end
+  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then 
+  begin
+    Msg.info ("No lamda lifting: an alpha equivalent term is already lifted");
+    (Hashtbl.find my_hash t)
+  end
+  else 
+   begin
+     Msg.info ("Lamda lifting ...");
+     let lft = lambda_lifting axname name fvars lvars1 t in
+     (Hashtbl.add my_hash lft t);
+	 lft
+   end
+   
 and lambda_lifting axname name fvars lvars1 tm =
   debug 3 (fun () -> print_header "lambda_lifting" tm (fvars @ lvars1));
   let rec extract_lambdas tm acc =
@@ -2209,12 +2219,12 @@ and close vars cont =
     in
     hlp [] vars
 
-(* and remove_lambda ctx tm =
+and remove_lambda ctx tm =
   debug 3 (fun () -> print_header "remove_lambda" tm ctx);
   let name = "$_lam_" ^ unique_id ()
   in
-  lambda_lifting name name (get_fvars ctx tm) [] tm
- *)
+  hashing name name (get_fvars ctx tm) [] tm
+(* 
 and remove_lambda ctx tm =
   debug 3 (fun () -> print_header "remove_lambda" tm ctx);
   let ctx' = get_fvars ctx tm in
@@ -2226,7 +2236,7 @@ and remove_lambda ctx tm =
         with _ -> 
           let name = "$_lam_" ^ unique_id () in
             lambda_lifting name name (get_fvars ctx tm) [] tm
-
+ *)
 and remove_case ctx tm =
   debug 3 (fun () -> print_header "remove_case" tm ctx);
   case_lifting "" "" (get_fvars ctx tm) [] tm

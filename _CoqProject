@@ -13,5 +13,8 @@ src/hammer.ml4
 src/hammer_plugin.mllib
 theories/Reconstr.v
 theories/Hammer.v
+theories/ReflectFact.v
+theories/BooltoProp.v
+theories/ProptoBool.v
 -R theories Hammer
 -I src
