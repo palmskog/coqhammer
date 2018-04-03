@@ -12,6 +12,7 @@
    definitions with types). *)
 
 open Hh_term
+open Printf
 
 (***************************************************************************************)
 (* Options *)
@@ -596,6 +597,249 @@ let canonical ctx0 =
   in can_ctx_aux [] [] 0 (List.rev ctx0)
 
 let funcs_hash : ((string * coqterm) list * coqterm , coqterm) Hashtbl.t = Hashtbl.create 10
+
+
+(***************************************************************************************)
+(** Coqterm hashing: BE *)
+
+
+(** helpers *)
+let cft_eq t1 t2 =
+  match t1, t2 with
+    | CoqFix, CoqFix -> true
+	| CoqCoFix, CoqCoFix -> true
+	| _, _ -> false
+	
+let rec ps l =
+  match l with 
+    | [] ->  ()	
+	| x :: xs -> printf "%s; " x; ps xs
+
+let rec cs l =
+  match l with
+    | [] -> "e"
+	| x :: xs -> x ^ "|" ^ cs xs
+	
+let rec list_eq l1 l2 =
+ match l1, l2 with
+   | [], [] -> true
+   | x1 :: xs1, x2 :: xs2 -> 
+     if x1 = x2 then list_eq xs1 xs2
+	 else false
+   | _, _ -> false
+
+let rec ct_to_string t =
+  match t with
+    | Const s -> s
+    | Var s -> s
+	| Lam (s, ty, b) -> "λ" ^ s ^ ":" ^ "[" ^ ct_to_string ty ^ "]" ^ ".(" ^ ct_to_string b ^ ")"
+	| Prod (s, ty, b) -> "Π" ^ s ^ ":" ^ "[" ^ ct_to_string ty ^ "]" ^ ".(" ^ ct_to_string b ^ ")"
+	| App (t1, t2) -> ct_to_string t1 ^ " " ^ ct_to_string t2
+	| Let (t, (s, ty, b)) -> "letIn " ^ ct_to_string t ^ s ^ ct_to_string ty ^ ct_to_string b
+	| Quant (s1, (s2, ty, b)) -> s1 ^ s2 ^ ct_to_string ty ^ ct_to_string b
+	| Equal (t1, t2) -> "= (" ^ ct_to_string t1 ^ ct_to_string t2 ^ ")"
+	| Cast (t1, t2) -> "==>" ^ ct_to_string t1 ^ ct_to_string t2
+	| SortProp -> "SortProp"
+	| SortSet  -> "SortSet"
+	| SortType -> "SortType"
+	| Case (s, t1, t2, i, l) -> "case" ^ s ^ " " ^ ct_to_string t1 ^ "|" 
+	| IndType (s, l, i) -> "Inductive " ^ s ^ cs l
+	| Fix (cft, i, l, lctt, lctb) -> "Fix" 
+	
+let rec free_variables t =
+  match t with
+    | Const s -> [s]
+    | Var s -> [s]
+	| Lam (s, t, b) ->
+	  let fv_b = List.filter ( fun a -> a <> s) (free_variables b) in
+	  let fv_t = free_variables t in
+	  List.append fv_t (List.filter ( fun a -> not (List.mem a fv_t)) fv_b)
+	| Prod (s, t, b) ->
+	  let fv_b = List.filter ( fun a -> a <> s) (free_variables b) in
+	  let fv_t = free_variables t in
+	  List.append fv_t (List.filter ( fun a -> not (List.mem a fv_t)) fv_b)
+	| App (t1, t2) -> 
+	  let fv_t1 = free_variables t1 in
+	  let fv_t2 = free_variables t2 in
+	  List.append fv_t1 (List.filter ( fun a -> not (List.mem a fv_t1)) fv_t2)
+	| Let (t, (s, ty, b)) -> 
+	  let fv_t = free_variables t in
+	  let fv_ty = free_variables ty in
+      let fv_b = List.filter ( fun a -> a <> s) (free_variables b) in
+	  let cbt = (List.filter ( fun a -> not (List.mem a fv_t)) fv_b) in
+	  let cbty = (List.filter ( fun a -> not (List.mem a fv_ty)) cbt) in
+	  let ctyt = (List.filter ( fun a -> not (List.mem a fv_t)) fv_ty) in
+      List.append cbty ctyt
+	| Quant (s1, (s2, ty, b)) ->
+	  let fv_ty = free_variables ty in
+      let fv_b = List.filter ( fun a -> a <> s2) (free_variables b) in
+	  let cbt = (List.filter ( fun a -> not (List.mem a fv_ty)) fv_b) in
+	  List.append fv_ty cbt
+	| Equal (t1, t2) -> 
+	  let fv_t1 = free_variables t1 in
+	  let fv_t2 = free_variables t2 in
+	  List.append fv_t1 (List.filter ( fun a -> not (List.mem a fv_t1)) fv_t2)
+	| SortProp | SortSet | SortType -> []
+	| Cast (t1, t2) -> 
+	  let fv_t1 = free_variables t1 in
+	  let fv_t2 = free_variables t2 in
+	  List.append fv_t1 (List.filter ( fun a -> not (List.mem a fv_t1)) fv_t2)
+	| IndType (s, l, i) -> []
+	| Fix (cft, i, l, lctt, lctb) -> 
+	  let fv_lctt = List.flatten (List.map (free_variables) lctt) in
+	  let fv_lctb = List.flatten (List.map (free_variables) lctb) in
+	  List.append fv_lctt (List.filter ( fun a -> not (List.mem a fv_lctt)) fv_lctb)
+	| Case (s, t1, t2, i, l) -> 
+	  let fv_t1 = free_variables t1 in
+	  let fv_t2 = free_variables t2 in
+	  let fv_l  = List.flatten (List.map free_variables (List.map snd l)) in
+	  let cbl  = (List.filter ( fun a -> not (List.mem a fv_t1)) fv_l) in
+	  let cbl' = (List.filter ( fun a -> not (List.mem a fv_t2)) cbl) in
+	  let cbt  = (List.filter ( fun a -> not (List.mem a fv_t2)) fv_t1) in
+	  List.append cbt cbl'
+
+	  
+let rec fresh_variable v l =
+  if List.mem v l then
+    fresh_variable (v^"\'") l
+  else v
+  
+let rec subst v t1 t2 = 
+  match t2 with
+    | Const s -> if s = v then t1 else Const s
+    | Var s -> if s = v then t1 else Var s
+	| Lam (s, t, b) -> let (s', t', b') = subst_coqabstract v t1 t2 s t b in Lam (s', t', b')
+	| Prod (s, t, b) -> let (s', t', b') = subst_coqabstract v t1 t2 s t b in Prod (s', t', b')
+    | App (f, g) -> App ((subst v t1 f), (subst v t1 g))
+	| Let (t, (s, ty, b)) -> 
+	  begin
+	    let sb = subst v t1 t in 
+        let (s', t', b') = subst_coqabstract v t1 t2 s ty b in 
+        Let (sb, (s', t', b'))
+	  end
+	| Quant (s1, (s2, ty, b)) -> 
+	  let (s', t', b') = subst_coqabstract v t1 t2 s2 ty b in  Quant (s1, (s', t', b'))
+    | Equal (f, g) -> Equal ((subst v t1 f), (subst v t1 g))
+    | Cast (f, g) -> Cast ((subst v t1 f), (subst v t1 g))
+	| SortProp -> SortProp
+	| SortSet -> SortSet
+	| SortType -> SortType
+	| Case (s, b1, b2, i, l) ->
+	  let sb1 = subst v t1 b1 in
+	  let sb2 = subst v t2 b2 in
+	  let lsp = List.split l in
+	  let lspl = fst lsp in
+	  let lspr = snd lsp in
+	  let sl  = List.map (subst v t1) lspr in
+	  let rl  = List.combine lspl sl in
+	  Case (s, sb1, sb2, i, rl) 
+	| IndType (s, l, i) as it -> it
+	| Fix (cft, i, l, lctt, lctb) -> 
+	  let slctt = List.map (subst v t1) lctt in
+	  let slctb = List.map (subst v t1) lctb in
+	  Fix (cft, i, l, slctt, slctb)
+	   
+and subst_coqabstract v t1 t2 s t b =
+  begin
+    let fvar_b = free_variables b in
+    let fvar_t = free_variables t in
+    let fvar_t1 = free_variables t1 in
+    if (s = v) then (s, t, b) (** the variable is bound *)
+    else if ((not (List.mem v fvar_b)) && (not (List.mem v fvar_t))) then (s, t, b) (** nothing to change *)
+    else if (List.mem s (fvar_t1)) then
+      let fv = fresh_variable s (List.append (List.append fvar_b fvar_t1) fvar_t) in
+      (fv, (subst v t1 (subst s (Var fv) t)), (subst v t1 (subst s (Var fv) b)))
+    else if (List.mem v (fvar_b) || List.mem v (fvar_t)) then
+      begin
+	    match t1 with
+	      | Var st1 ->
+	        let fv = fresh_variable st1 (List.append (List.append fvar_b fvar_t1) fvar_t) in
+		    (s, (subst v t1 (subst st1 (Var fv) t)), (subst v t1 (subst st1 (Var fv) b)))
+	      | _ -> (s, t, b)
+      end
+    else
+      (s, (subst v t1 t), (subst v t1 b))
+  end
+
+let rec is_alpha_conv t1 t2 =
+  match t1, t2 with
+    | Const s1, Const s2 -> if (s1 = s2) then true else false
+    | Var s1, Var s2 -> if (s1 = s2) then true else false
+	| Lam (s1, t1, b1), Lam (s2, t2, b2) -> 
+	  if s1 = s2 then
+	    is_alpha_conv t1 t2 && is_alpha_conv b1 b2 
+	  else
+	     is_alpha_conv t1 (subst s2 (Var s1) t2) && is_alpha_conv b1 (subst s2 (Var s1) b2)
+	| Prod (s1, t1, b1), Prod (s2, t2, b2) -> 
+	  if s1 = s2 then
+	    is_alpha_conv t1 t2 && is_alpha_conv b1 b2 
+	  else
+	     is_alpha_conv t1 (subst s2 (Var s1) t2) && is_alpha_conv b1 (subst s2 (Var s1) b2)
+	| App (t1, t2), App (t3, t4) -> is_alpha_conv t1 t3 && is_alpha_conv t2 t4
+	| Let (t1, (s1, ty1, b1)), Let (t2, (s2, ty2, b2)) -> 
+	  if is_alpha_conv t1 t2 then
+	    begin
+          if s1 = s2 then
+	        is_alpha_conv ty1 ty2 && is_alpha_conv b1 b2 
+	      else
+	        is_alpha_conv ty1 (subst s2 (Var s1) ty2) && is_alpha_conv b1 (subst s2 (Var s1) b2)
+		end
+	  else false
+	| Quant (s1, (s2, ty1, b1)), Quant (s3, (s4, ty2, b2)) ->
+	  if s1 = s3 then
+	    begin
+          if s2 = s4 then
+	        is_alpha_conv ty1 ty2 && is_alpha_conv b1 b2 
+	      else
+	        is_alpha_conv ty1 (subst s2 (Var s1) ty2) && is_alpha_conv b1 (subst s2 (Var s1) b2)
+		end
+	  else false
+	| Equal (t1, t2), Equal (t3, t4) -> is_alpha_conv t1 t3 && is_alpha_conv t2 t4
+	| Cast (t1, t2), Cast (t3, t4) -> is_alpha_conv t1 t3 && is_alpha_conv t2 t4
+	| SortProp, SortProp -> true
+	| SortSet, SortSet -> true
+	| SortType, SortType -> true
+	| IndType (s1, l1, i1), IndType (s2, l2, i2) -> (s1 = s2) && (list_eq l1 l2) && (i1 = i2)
+	| Fix (cft1, i1, l1, lctt1, lctb1), Fix (cft2, i2, l2, lctt2, lctb2) ->
+	  if ((cft_eq cft1 cft2) && (i1 = i2) && (list_eq l1 l2)) then
+	    is_alpha_conv_list lctt1 lctt2 && is_alpha_conv_list lctb1 lctb2
+	  else false
+	| Case (s1, tm1, tm2, i1, l1), Case (s2, tm3, tm4, i2, l2) ->
+	  if i1 = i2 then
+	    begin
+		  let lspl1 = List.split l1 in
+		  let lspl2 = List.split l2 in
+		  let l11   = fst lspl1 in
+		  let l12   = snd lspl1 in
+		  let l21   = fst lspl2 in
+		  let l22   = snd lspl2 in
+	      is_alpha_conv tm1 tm3 && is_alpha_conv tm2 tm4 && list_eq l11 l21 && is_alpha_conv_list l12 l22
+		end
+	  else false
+	| _, _ -> false
+	  
+and is_alpha_conv_list l1 l2 =
+  match l1, l2 with
+    | [], [] -> true
+	| x1 :: xs1, x2 :: xs2 -> is_alpha_conv x1 x2 && is_alpha_conv_list xs1 xs2
+	| _, _ -> false
+
+let my_hash = Hashtbl.create 128
+
+let hash_bool t1 t2 b =
+  if (is_alpha_conv t1 t2) then (b || true) else (b || false)
+  
+let ht_to_list h = Hashtbl.fold (fun k v acc -> (k, v) :: acc) h []
+  
+let hashing t =
+  let hk = Hashtbl.hash t in
+  if (Hashtbl.mem my_hash hk) then true
+  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then true
+  else 
+   begin
+     (Hashtbl.add my_hash hk t);
+	 false
+   end
 
 (***************************************************************************************)
 (* Printing *)
