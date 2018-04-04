@@ -15,6 +15,9 @@ Require Import String.
 Require Import Arith.PeanoNat.
 Require Import Bool.Bool.
 
+Set Universe Polymorphism.
+
+
 Inductive aexpr :=
 | Nval : nat -> aexpr
 | Vval : string -> aexpr
@@ -156,10 +159,10 @@ Inductive big_step : cmd * state -> state -> Prop :=
     bval s1 b = true -> big_step (c, s1) s2 -> big_step (While b c, s2) s3 ->
     big_step (While b c, s1) s3.
 
-Notation "A => B" := (big_step A B) (at level 80, no associativity).
+Notation "A ==> B" := (big_step A B) (at level 80, no associativity).
 
-Lemma lem_seq_assoc : forall c1 c2 c3 s s', (Seq c1 (Seq c2 c3), s) => s' <->
-                                            (Seq (Seq c1 c2) c3, s) => s'.
+Lemma lem_seq_assoc : forall c1 c2 c3 s s', (Seq c1 (Seq c2 c3), s) ==> s' <->
+                                            (Seq (Seq c1 c2) c3, s) ==> s'.
 Proof.
   sauto.
   Reconstr.hobvious Reconstr.AllHyps
@@ -174,7 +177,7 @@ Proof.
   pose SeqSem; scrush.
 Qed.
 
-Definition equiv_cmd (c1 c2 : cmd) := forall s s', (c1, s) => s' <-> (c2, s) => s'.
+Definition equiv_cmd (c1 c2 : cmd) := forall s s', (c1, s) ==> s' <-> (c2, s) ==> s'.
 
 Notation "A ~~ B" := (equiv_cmd A B) (at level 70, no associativity).
 
@@ -204,10 +207,10 @@ Proof.
   intro H; inversion H; pose WhileTrue; pose WhileFalse; scrush.
 Qed.
 
-Lemma lem_while_cong_aux : forall b c c' s s', (While b c, s) => s' -> c ~~ c' ->
-                                               (While b c', s) => s'.
+Lemma lem_while_cong_aux : forall b c c' s s', (While b c, s) ==> s' -> c ~~ c' ->
+                                               (While b c', s) ==> s'.
 Proof.
-  assert (forall p s', p => s' -> forall b c c' s, p = (While b c, s) -> c ~~ c' -> (While b c', s) => s').
+  assert (forall p s', p ==> s' -> forall b c c' s, p = (While b c, s) -> c ~~ c' -> (While b c', s) ==> s').
   intros p s' H.
   induction H; sauto.
   pose WhileFalse; scrush.
@@ -226,7 +229,7 @@ Proof.
 Qed.
 
 Lemma lem_big_step_deterministic :
-  forall c s s1 s2, (c, s) => s1 -> (c, s) => s2 -> s1 = s2.
+  forall c s s1 s2, (c, s) ==> s1 -> (c, s) ==> s2 -> s1 = s2.
 Proof.
   intros c s s1 s2 H.
   revert s2.
@@ -296,7 +299,7 @@ Proof.
   pose_rt; scrush.
 Qed.
 
-Lemma lem_big_to_small : forall p s', p => s' -> p -->* (Skip, s').
+Lemma lem_big_to_small : forall p s', p ==> s' -> p -->* (Skip, s').
 Proof.
   intros p s' H.
   induction H as [ | | | | | | b c s1 s2 ]; try yelles 1.
@@ -316,7 +319,7 @@ Proof.
   pose_rt; pose SeqSemS1; scrush.
 Qed.
 
-Lemma lem_small_to_big_aux : forall p p', p --> p' -> forall s, p' => s -> p => s.
+Lemma lem_small_to_big_aux : forall p p', p --> p' -> forall s, p' ==> s -> p ==> s.
 Proof.
   intros p p' H.
   induction H; try yelles 1.
@@ -338,7 +341,7 @@ Proof.
 		    (@equiv_cmd).
 Qed.
 
-Lemma lem_small_to_big_aux_2 : forall p p', p -->* p' -> forall s, p' => s -> p => s.
+Lemma lem_small_to_big_aux_2 : forall p p', p -->* p' -> forall s, p' ==> s -> p ==> s.
 Proof.
   intros p p' H.
   induction H; sauto.
@@ -347,9 +350,9 @@ Proof.
 		    Reconstr.Empty.
 Qed.
 
-Lemma lem_small_to_big : forall p s, p -->* (Skip, s) -> p => s.
+Lemma lem_small_to_big : forall p s, p -->* (Skip, s) -> p ==> s.
 Proof.
-  assert (forall p p', p -->* p' -> forall s, p' = (Skip, s) -> p => s).
+  assert (forall p p', p -->* p' -> forall s, p' = (Skip, s) -> p ==> s).
   intros p p' H.
   induction H; sauto.
   Reconstr.hobvious Reconstr.AllHyps
@@ -361,9 +364,116 @@ Proof.
   scrush.
 Qed.
 
-Corollary cor_big_iff_small : forall p s, p => s <-> p -->* (Skip, s).
+Corollary cor_big_iff_small : forall p s, p ==> s <-> p -->* (Skip, s).
 Proof.
   Reconstr.hobvious Reconstr.Empty
 		    (@lem_small_to_big, @lem_big_to_small)
 		    Reconstr.Empty.
 Qed.
+
+
+Section SM.
+
+Require Import List.
+Import ListNotations.
+
+Inductive Instr: Type :=
+  | LoadI: nat    -> Instr
+  | Load : string -> Instr
+  | Add  : Instr.
+
+Definition stack {A} := list A.
+
+Definition tl2 {A} (l: list A) := @tl A (@tl A l).
+Definition hd2 {A} d (l: list A) := hd d (@tl A l).
+
+Definition exec1 {d} (i: Instr) (s: state) (stk: @stack nat): @stack nat := 
+  match i with
+    | LoadI n => n :: stk
+    | Load  x => s x :: stk
+    | Add     => (hd2 d stk + hd d stk) :: tl2 stk
+  end.
+
+Fixpoint exec {d} (l: list Instr) (s: state) (stk: @stack nat): @stack nat :=
+  match l with
+   | [] => stk
+   | x :: xs => @exec d xs s (@exec1 d x s stk)
+  end.
+
+Fixpoint comp (a: aexpr): list Instr :=
+  match a with
+    | Nval n => [LoadI n]
+    | Vval x => [Load x]
+    | Aplus a1 a2 => comp a1 ++ comp a2 ++ [Add]
+  end.
+
+Lemma helper: forall d is1 is2 s stk, @exec d (is1 ++ is2) s stk = @exec d is2 s (@exec d is1 s stk).
+Proof. induction is1; sauto. Qed.
+
+Lemma ststk: forall d a s stk, @exec d (comp a) s stk = (aval s a) :: stk.
+Proof. induction a; sauto.
+       do 2 rewrite helper.
+       Reconstr.scrush (** hammer *).
+Qed.
+
+End SM.
+
+
+Section HL.
+
+Definition assn := state -> Prop.
+Definition hoare_valid (P: assn) (c: cmd) (Q: assn): Prop :=
+  forall s t, P s /\ big_step (c, s) t -> Q t.
+
+Definition state_subst (s: state) (a: aexpr) (x: string): state := (update s x (aval s a)).
+Definition entails (P Q: assn): Prop := forall s, P s -> Q s.
+
+
+Notation "|- '{' P '}' c '{' Q '}'" := (hoare_valid P c Q) (at level 80, no associativity).
+Notation "s [ a / x ]" := (state_subst s a x) (at level 80, no associativity).
+
+
+Inductive hoare: assn -> cmd -> assn -> Prop :=
+  | HSkip  : forall P c, hoare P c P
+  | HAssign: forall P a x, hoare (fun s => P (state_subst s a x)) (Assign x a) P
+  | HSeq   : forall P Q R c1 c2,  hoare P c1 Q -> hoare Q c2 R -> hoare P (Seq c1 c2) Q
+  | HIf    : forall P Q b c1 c2,  hoare (fun s => P s /\ bval s b = true)  c1 Q ->
+                                  hoare (fun s => P s /\ bval s b = false) c2 Q -> hoare P (If b c1 c2) Q
+  | HWhile : forall P b c, hoare (fun s => P s /\ bval s b = true) c P ->
+                           hoare P (While b c) (fun s => P s /\ bval s b = false)
+  | HConseq: forall (P P' Q Q': assn) c, (entails P' P) -> hoare P c Q -> (entails Q Q') -> hoare P' c Q'.
+
+Lemma strengthen_pre: forall (P P' Q: assn) c, (entails P' P) -> hoare P c Q -> hoare P' c Q.
+Proof.
+	Reconstr.hsimple Reconstr.Empty
+		(@HConseq)
+		(@entails) (** hammer *).
+Qed.
+
+Lemma weaken_post: forall (P Q Q': assn) c, (entails Q Q') -> hoare P c Q -> hoare P c Q'.
+Proof.
+	Reconstr.hobvious Reconstr.Empty
+		(@HConseq)
+		(@entails) (** hammer *).
+Qed.
+
+Lemma While': forall b (P Q: assn) c, hoare (fun s => P s /\ bval s b = true) c P ->
+                                      (forall s, P s /\ bval s b = false -> Q s) ->
+                                      hoare P (While b c) Q.
+Proof. intros.
+       specialize (HWhile _ _ _ H); intros.
+       specialize (weaken_post P (fun s : state => P s /\ bval s b = false) Q (While b c)); intros.
+       Reconstr.scrush (** hammer *).
+Qed.
+
+
+Lemma Assign': forall (P Q: assn) a x, (forall s, P s -> Q (state_subst s a x)) -> hoare P (Assign x a) Q.
+Proof. intros.
+       specialize (strengthen_pre (fun s: state => Q (state_subst s a x)) P Q  (Assign x a) ); intros.
+       Reconstr.scrush (** hammer *).
+Qed.
+
+End HL.
+
+
+

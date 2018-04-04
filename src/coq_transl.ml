@@ -1825,23 +1825,68 @@ let rec add_inversion_axioms0 mkinv indname axname fvars lvars constrs matched_t
 (* Lambda-lifting, fix-lifting and case-lifting *)
 
 and hashing axname name fvars lvars1 t =
-  if (Hashtbl.mem my_hash t) then 
-  begin
-     Msg.info ("No lamda lifting: the term is already lifted");
-    (Hashtbl.find my_hash t)
-  end
-  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then 
-  begin
-    Msg.info ("No lamda lifting: an alpha equivalent term is already lifted");
-    (Hashtbl.find my_hash t)
-  end
-  else 
-   begin
-     Msg.info ("Lamda lifting ...");
-     let lft = lambda_lifting axname name fvars lvars1 t in
-     (Hashtbl.add my_hash lft t);
-	 lft
-   end
+  match t with
+    | Lam (_) ->
+	begin
+	  if (Hashtbl.mem my_hash t) then 
+	  begin
+		 Msg.info ("No lamda lifting: the term is already lifted");
+		(Hashtbl.find my_hash t)
+	  end
+	  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then 
+	  begin
+		Msg.info ("No lamda lifting: an alpha equivalent term is already lifted");
+		(Hashtbl.find my_hash t)
+	  end
+	  else 
+	   begin
+		 Msg.info ("Lamda lifting ...");
+		 let lft = lambda_lifting axname name fvars lvars1 t in
+		 (Hashtbl.add my_hash lft t);
+		 lft
+	   end
+	 end
+	 | Case (_) -> 
+	 begin
+	  if (Hashtbl.mem my_hash t) then 
+	  begin
+		 Msg.info ("No case lifting: the term is already lifted");
+		(Hashtbl.find my_hash t)
+	  end
+	  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then 
+	  begin
+		Msg.info ("No case lifting: an alpha equivalent term is already lifted");
+		(Hashtbl.find my_hash t)
+	  end
+	  else 
+	   begin
+		 Msg.info ("Case lifting ...");
+		 let cft = case_lifting axname name fvars lvars1 t in
+		 (Hashtbl.add my_hash cft t);
+		 cft
+	   end
+	 end
+	 | Fix (_) -> 
+	 begin
+	  if (Hashtbl.mem my_hash t) then 
+	  begin
+		 Msg.info ("No case lifting: the term is already lifted");
+		(Hashtbl.find my_hash t)
+	  end
+	  else if (List.mem true (List.map (is_alpha_conv t) (List.map snd (ht_to_list my_hash)))) then 
+	  begin
+		Msg.info ("No fix lifting: an alpha equivalent term is already lifted");
+		(Hashtbl.find my_hash t)
+	  end
+	  else 
+	   begin
+		 Msg.info ("Case lifting ...");
+		 let fft = fix_lifting axname name fvars lvars1 t in
+		 (Hashtbl.add my_hash fft t);
+		 fft
+	   end
+	 end
+	 | _ -> t
    
 and lambda_lifting axname name fvars lvars1 tm =
   debug 3 (fun () -> print_header "lambda_lifting" tm (fvars @ lvars1));
@@ -2239,7 +2284,7 @@ and remove_lambda ctx tm =
  *)
 and remove_case ctx tm =
   debug 3 (fun () -> print_header "remove_case" tm ctx);
-  case_lifting "" "" (get_fvars ctx tm) [] tm
+  hashing "" "" (get_fvars ctx tm) [] tm
 (* TODO: for case lifting get_fvars should always include the proof
    variables tm may depend on; otherwise the resulting FOL problem
    may be inconsistent *)
@@ -2270,7 +2315,7 @@ and remove_cast ctx tm =
 
 and remove_fix ctx tm =
   debug 3 (fun () -> print_header "remove_fix" tm ctx);
-  fix_lifting "" "" (get_fvars ctx tm) [] tm
+  hashing "" "" (get_fvars ctx tm) [] tm
 
 and remove_let ctx tm =
   debug 3 (fun () -> print_header "remove_let" tm ctx);

@@ -49,7 +49,31 @@ Ltac prop2bool :=
     (* | [ |- _ : (CompDec _ )] => try easy *)
     end.
 
+
 (*
+Require Coq.Reals.RIneq.
+Require Coq.Reals.Raxioms.
+Require Coq.Reals.Rtrigo1.
+
+Lemma cos_decreasing_1 :
+  forall y x : Rdefinitions.R,
+    Rdefinitions.Rlt x y ->
+    Rdefinitions.Rle x Rtrigo1.PI ->
+    Rdefinitions.Rge y 0 ->
+    Rdefinitions.Rle y Rtrigo1.PI ->
+    Rdefinitions.Rge x 0 ->
+    Rdefinitions.Rlt (Rtrigo_def.cos y) (Rtrigo_def.cos x).
+Proof.
+  time hammer.
+Qed.
+
+
 Lemma example_prop: forall a b, ((a = true /\ b = true) \/ a = true) <->  a = true.
 Proof. prop2bool. hammer. Qed.
+
+Require ZArith.BinInt.
+
+Lemma max_lub : forall m p k n : BinNums.Z,
+                  BinInt.Z.ge p m -> BinInt.Z.le n p -> BinInt.Z.le (BinInt.Z.max n m) p.
+Proof. hammer. Qed.
 *)

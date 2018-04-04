@@ -55,10 +55,10 @@ Ltac bool2prop :=
 
 end.
 
+
 (*
 Lemma example_bool: forall a b, ((a && b) || a) <-->  a.
 Proof. bool2prop. hammer. Qed.
-
 
 Lemma leq_pmull: forall m n: Z, Z.gtb n 0 -> Z.leb m (n * m).
 Proof. time bool2prop; hammer.
