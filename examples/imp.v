@@ -443,6 +443,23 @@ Inductive hoare: assn -> cmd -> assn -> Prop :=
                            hoare P (While b c) (fun s => P s /\ bval s b = false)
   | HConseq: forall (P P' Q Q': assn) c, (entails P' P) -> hoare P c Q -> (entails Q Q') -> hoare P' c Q'.
 
+
+(*
+Fixpoint sum n: nat :=
+  match n with
+    | O   => 0
+    | S m => n + sum m
+  end. 
+
+Variable x: string.
+Variable n: nat.
+Check  (hoare (fun s => s x = 5) Skip  (fun s => s x = sum n)).
+
+Print update.
+Compute (fun s => (update s "x" 5 "x")).
+Check (hoare (fun s => ((update s "x" 5 "x") = 5)) Skip  (fun s => ((update s "x" 5 "x") = 5))).
+*)
+
 Lemma strengthen_pre: forall (P P' Q: assn) c, (entails P' P) -> hoare P c Q -> hoare P' c Q.
 Proof.
 	Reconstr.hsimple Reconstr.Empty
@@ -472,6 +489,52 @@ Proof. intros.
        specialize (strengthen_pre (fun s: state => Q (state_subst s a x)) P Q  (Assign x a) ); intros.
        Reconstr.scrush (** hammer *).
 Qed.
+
+Inductive hoareT: assn -> cmd -> assn -> Prop :=
+  | HSkipT  : forall P c, hoareT P c P
+  | HAssignT: forall P a x, hoareT (fun s => P (state_subst s a x)) (Assign x a) P
+  | HSeqT   : forall P Q R c1 c2, hoareT P c1 Q -> hoare Q c2 R -> hoareT P (Seq c1 c2) Q
+  | HIfT    : forall P Q b c1 c2, hoareT (fun s => P s /\ bval s b = true)  c1 Q ->
+                                  hoareT (fun s => P s /\ bval s b = false) c2 Q -> hoareT P (If b c1 c2) Q
+  | HWhileT : forall P b c (T: state -> nat -> Prop),
+                 (forall n, hoareT (fun s => P s /\ bval s b = true /\ (T s n)) c (fun s => P s /\ (exists n', n' < n /\ (T s n')))) ->
+                  hoareT P (While b c) (fun s => P s /\ bval s b = false)
+  | HConseqT: forall (P P' Q Q': assn) c, (entails P' P) -> hoareT P c Q -> (entails Q Q') -> hoareT P' c Q'.
+
+Lemma WhileT'_fun: forall b (P Q: assn) c (f: state -> nat), 
+                     (forall n: nat, hoareT (fun s => P s /\ bval s b = true /\ n = f s) c (fun s => P s /\ f s < n)) ->
+                     hoareT P (While b c) (fun s => P s /\ bval s b = false).
+Proof. intros.
+       specialize (HWhileT P b c (fun s n => n = f s)); intros.
+       apply H0. intros.
+       eapply HConseqT.
+       - Reconstr.scrush (** hammer *).
+       - Reconstr.scrush (** hammer *).
+	     - Reconstr.hobvious Reconstr.Empty
+		     Reconstr.Empty
+		    (@HL.entails) (** hammer *).
+Qed.
+
+Lemma strengthen_preT: forall (P P' Q: assn) c, (entails P' P) -> hoareT P c Q -> hoareT P' c Q.
+Proof.
+	Reconstr.hobvious Reconstr.Empty
+		(@HL.HConseqT)
+		(@HL.entails) (** hammer *).
+Qed.
+
+Lemma weaken_postT: forall (P Q Q': assn) c, (entails Q Q') -> hoareT P c Q -> hoareT P c Q'.
+Proof.
+	Reconstr.hobvious Reconstr.Empty
+		(@HL.HConseqT)
+		(@HL.entails) (** hammer *).
+Qed.
+
+Lemma WhileT': forall b (P Q: assn) c (f: state -> nat), 
+                 (forall n: nat, hoareT (fun s => P s /\ bval s b = true /\ n = f s) c (fun s => P s /\ f s < n)) ->
+                 (forall s, P s /\ bval s b = false -> Q s) ->
+                 hoareT P (While b c) Q.
+Proof. Admitted.
+
 
 End HL.
 
